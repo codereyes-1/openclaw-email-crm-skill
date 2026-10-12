@@ -3,15 +3,15 @@
 import argparse
 import sys
 
-from email_crm import add_db_argument, connect, emit, initialize, normalize_email
+from email_crm import add_db_argument, add_email_arguments, connect, emit, initialize, normalize_email, read_email_argument
 
 parser = argparse.ArgumentParser()
 add_db_argument(parser)
-parser.add_argument("--email", required=True)
+add_email_arguments(parser)
 args = parser.parse_args()
 
 try:
-    email = normalize_email(args.email)
+    email = normalize_email(read_email_argument(args))
 except ValueError:
     emit({"ready": False, "reasons": ["invalid_email"]})
     sys.exit(1)

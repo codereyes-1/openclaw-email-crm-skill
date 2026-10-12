@@ -13,33 +13,37 @@ Use this skill as a local decision and audit layer for email workflows. It store
 
 ## 1. Choose the database
 
-Pass `--db PATH` to every helper for an explicit database. If omitted, helpers use `EMAIL_CRM_DB`, then `data/email_crm.sqlite` relative to the current working directory. The default location is deliberately ignored by Git.
+Pass `--db PATH` to every helper for an explicit database. If omitted, helpers use `EMAIL_CRM_DB`, then `$XDG_DATA_HOME/openclaw-email-crm/email_crm.sqlite` (or `~/.local/share/openclaw-email-crm/email_crm.sqlite` when `XDG_DATA_HOME` is unset). The default never depends on the caller's current working directory. Database files and SQLite sidecars are restricted to the owning user (`0600`).
+
+`{baseDir}` below is the absolute installation directory supplied by OpenClaw. Keep it in every script invocation so commands work regardless of the current working directory.
 
 ## 2. Initialize before use
 
 ```bash
-python scripts/init_email_crm.py --db data/email_crm.sqlite
+python3 "{baseDir}/scripts/init_email_crm.py" --db /absolute/private/path/email_crm.sqlite
 ```
 
-The command creates or migrates the schema and enables SQLite foreign keys for its connection. Confirm that it returns `schema_version: 1`.
+The command creates the versioned schema, verifies compatibility with an existing database, and enables SQLite foreign keys for its connection. Confirm that it returns `schema_version: 1`.
 
 ## 3. Add or update a sourced contact
 
 ```bash
-python scripts/upsert_contact.py \
-  --db data/email_crm.sqlite \
-  --email alice@example.com \
+python3 "{baseDir}/scripts/upsert_contact.py" \
+  --db /absolute/private/path/email_crm.sqlite \
+  --email-stdin \
   --source "manual-review"
 ```
 
-`--source` is required. The helper normalizes the email, upserts exactly one contact, and prints only its numeric ID.
+Provide the email value on standard input. Agents must use `--email-stdin`, passing the value directly as stdin rather than interpolating it into a shell command or exposing it in process arguments. `--email` remains available for attended CLI use.
+
+`--source` is required. The helper trims and lowercases the email before storing it in both email columns, upserts exactly one contact, and returns JSON containing `ok` and the stable numeric `contact_id`. On an existing contact it replaces `source`, refreshes `updated_at`, and preserves DNC state. A suppression created before the contact also sets the new contact's DNC state.
 
 ## 4. Check readiness before an external sender acts
 
 ```bash
-python scripts/check_email_readiness.py \
-  --db data/email_crm.sqlite \
-  --email alice@example.com
+python3 "{baseDir}/scripts/check_email_readiness.py" \
+  --db /absolute/private/path/email_crm.sqlite \
+  --email-stdin
 ```
 
 Treat `ready: false` as a hard stop. A caller must run this check immediately before queuing or sending email, then respect every returned reason code. This skill does not itself send email.
@@ -47,8 +51,8 @@ Treat `ready: false` as a hard stop. A caller must run this check immediately be
 ## 5. Record email lifecycle events
 
 ```bash
-python scripts/log_email_event.py \
-  --db data/email_crm.sqlite \
+python3 "{baseDir}/scripts/log_email_event.py" \
+  --db /absolute/private/path/email_crm.sqlite \
   --contact-id 1 \
   --event-type drafted
 ```
@@ -58,16 +62,16 @@ Allowed event types are `drafted`, `queued`, `sent`, `delivered`, `opened`, `rep
 ## 6. Process a manual DNC request or unsubscribe
 
 ```bash
-python scripts/suppress_email.py \
-  --db data/email_crm.sqlite \
-  --email alice@example.com \
+python3 "{baseDir}/scripts/suppress_email.py" \
+  --db /absolute/private/path/email_crm.sqlite \
+  --email-stdin \
   --reason unsubscribe
 ```
 
-Suppression is normalized, unique, idempotent, and also marks any matching contact as `do_not_contact`. Do not log raw email addresses in surrounding automation.
+Suppression is normalized, unique, idempotent, and also marks any matching contact as `do_not_contact`. Its JSON `reason` is the reason actually persisted by the first suppression, even if a later idempotent call supplies a different reason. Do not log raw email addresses in surrounding automation.
 
 ## Verification
 
-Run `python -m unittest discover -s tests -v`. The tests use only temporary databases and `example.com` addresses.
+Run `cd "{baseDir}" && python3 -m unittest discover -s tests -v`. The tests use only temporary databases and `example.com` addresses.
 
 See [the schema reference](references/schema.md) and [readiness rules](references/readiness-rules.md) for the stable integration contract.

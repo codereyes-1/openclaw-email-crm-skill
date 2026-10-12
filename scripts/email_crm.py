@@ -7,12 +7,16 @@ import json
 import os
 import re
 import sqlite3
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Optional
 
 SCHEMA_VERSION = 1
 EVENT_TYPES = ("drafted", "queued", "sent", "delivered", "opened", "replied", "bounced", "failed")
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+DEFAULT_DATA_HOME = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share")
+DEFAULT_DB_PATH = DEFAULT_DATA_HOME / "openclaw-email-crm" / "email_crm.sqlite"
 
 
 def utc_now() -> str:
@@ -27,24 +31,60 @@ def normalize_email(value: str) -> str:
 
 
 def add_db_argument(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--db", help="SQLite database path; defaults to EMAIL_CRM_DB or data/email_crm.sqlite")
+    parser.add_argument("--db", help="SQLite database path; defaults to EMAIL_CRM_DB or the per-user data directory")
 
 
-def resolve_db_path(value: str | None) -> Path:
-    return Path(value or os.environ.get("EMAIL_CRM_DB") or "data/email_crm.sqlite")
+def add_email_arguments(parser: argparse.ArgumentParser) -> None:
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument("--email", help="email address (prefer --email-stdin in agent automation)")
+    group.add_argument("--email-stdin", action="store_true", help="read the email address from standard input")
 
 
-def connect(db_path: str | None) -> sqlite3.Connection:
+def read_email_argument(args: argparse.Namespace) -> str:
+    return sys.stdin.read() if args.email_stdin else args.email
+
+
+def resolve_db_path(value: Optional[str]) -> Path:
+    return Path(value or os.environ.get("EMAIL_CRM_DB") or DEFAULT_DB_PATH).expanduser()
+
+
+def enforce_database_permissions(path: Path) -> None:
+    for candidate in (path, Path(f"{path}-wal"), Path(f"{path}-shm"), Path(f"{path}-journal")):
+        try:
+            candidate.chmod(0o600)
+        except FileNotFoundError:
+            pass
+
+
+def connect(db_path: Optional[str]) -> sqlite3.Connection:
     path = resolve_db_path(db_path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(path)
+    previous_umask = os.umask(0o077)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        conn = sqlite3.connect(path)
+    finally:
+        os.umask(previous_umask)
+    enforce_database_permissions(path)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
-    conn.execute("PRAGMA journal_mode = WAL")
     return conn
 
 
 def initialize(conn: sqlite3.Connection) -> int:
+    # Compatibility must be established before any DDL or journal-mode change.
+    # That keeps an unsupported database byte-for-byte untouched.
+    meta_exists = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'schema_meta'"
+    ).fetchone()
+    if meta_exists:
+        row = conn.execute("SELECT schema_version FROM schema_meta WHERE singleton = 1").fetchone()
+        if row is None:
+            raise RuntimeError("database schema metadata is invalid")
+        if row["schema_version"] > SCHEMA_VERSION:
+            raise RuntimeError("database schema is newer than this skill")
+        if row["schema_version"] < SCHEMA_VERSION:
+            raise RuntimeError("no migration is available for this database version")
+
     conn.executescript(
         """
         CREATE TABLE IF NOT EXISTS schema_meta (
@@ -83,11 +123,11 @@ def initialize(conn: sqlite3.Connection) -> int:
     now = utc_now()
     if row is None:
         conn.execute("INSERT INTO schema_meta (singleton, schema_version, updated_at) VALUES (1, ?, ?)", (SCHEMA_VERSION, now))
-    elif row["schema_version"] > SCHEMA_VERSION:
-        raise RuntimeError("database schema is newer than this skill")
-    elif row["schema_version"] < SCHEMA_VERSION:
-        raise RuntimeError("no migration is available for this database version")
     conn.commit()
+    conn.execute("PRAGMA journal_mode = WAL")
+    database_path = conn.execute("PRAGMA database_list").fetchone()[2]
+    if database_path:
+        enforce_database_permissions(Path(database_path))
     return SCHEMA_VERSION
 
 
@@ -97,7 +137,7 @@ def require_initialized(conn: sqlite3.Connection) -> None:
         raise RuntimeError("database is not initialized; run init_email_crm.py first")
 
 
-def parse_metadata(value: str | None) -> str | None:
+def parse_metadata(value: Optional[str]) -> Optional[str]:
     if value is None:
         return None
     parsed = json.loads(value)
