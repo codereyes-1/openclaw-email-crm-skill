@@ -1,0 +1,23 @@
+# Runtime data and SQLite sidecars
+data/
+*.sqlite
+*.sqlite-*
+*.db
+*.db-*
+
+# Contact exports and generated reports
+*.csv
+*.tsv
+exports/
+reports/
+
+# Secrets and local process output
+.env
+.env.*
+!.env.example
+*.log
+logs/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.DS_Store
