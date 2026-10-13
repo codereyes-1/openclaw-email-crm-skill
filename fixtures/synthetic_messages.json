@@ -1,0 +1,45 @@
+{
+  "messages": [
+    {
+      "provider": "synthetic",
+      "account_ref": "demo-account",
+      "external_id": "msg-001",
+      "conversation_external_id": "thread-quote-001",
+      "rfc_message_id": "<msg-001@example.com>",
+      "occurred_at": "2026-01-10T17:00:00Z",
+      "direction": "outbound",
+      "sender": "owner@example.com",
+      "recipients": ["alex@example.com"],
+      "subject": "Project quote",
+      "excerpt": "Synthetic outbound quote for the local demo.",
+      "metadata": {"fixture": true}
+    },
+    {
+      "provider": "synthetic",
+      "account_ref": "demo-account",
+      "external_id": "msg-002",
+      "conversation_external_id": "thread-quote-001",
+      "rfc_message_id": "<msg-002@example.com>",
+      "occurred_at": "2026-01-11T18:30:00Z",
+      "direction": "inbound",
+      "sender": "alex@example.com",
+      "recipients": ["owner@example.com"],
+      "subject": "Re: Project quote",
+      "excerpt": "Synthetic reply asking for the revised timeline.",
+      "metadata": {"fixture": true}
+    },
+    {
+      "provider": "synthetic",
+      "account_ref": "demo-account",
+      "external_id": "msg-003",
+      "conversation_external_id": "thread-review-001",
+      "occurred_at": "2026-01-12T19:15:00Z",
+      "direction": "unknown",
+      "sender": "shared@example.com",
+      "recipients": ["owner@example.com"],
+      "subject": "Routing ambiguity",
+      "excerpt": "Synthetic ambiguous message for manual review.",
+      "metadata": {"fixture": true}
+    }
+  ]
+}

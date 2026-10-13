@@ -1,6 +1,6 @@
 # Schema contract
 
-Schema version: `1`
+Schema version: `2`
 
 ## `contacts`
 
@@ -27,4 +27,20 @@ One row per normalized email address. Suppressing an address is idempotent and s
 
 ## `schema_meta`
 
-Stores the schema version. Future versions must use explicit, tested migrations; never silently reinterpret existing contact data.
+Stores the schema version. SQL migrations live in `migrations/` and are applied in numeric order. Version 2 migrates version 1 in place.
+
+## `conversations` and `messages`
+
+Provider/account/external IDs form stable idempotency keys. Messages normalize direction, participants, subject, timestamp, optional RFC Message-ID, a content hash, and at most a 500-character excerpt. Conversations store deterministic computed state, confidence, evidence JSON, and an optional manual override.
+
+## `obligations`
+
+One reusable idempotency key identifies each obligation. Owner, status, due time, confidence, and evidence are explicit. Open obligations participate in deterministic state classification.
+
+## `action_proposals` and `action_audit`
+
+Proposals are inert JSON records identified by a unique idempotency key and canonical payload hash. Review and no-op reconciliation append audit events. There is deliberately no delivery or provider-execution table.
+
+## `ingestion_runs`
+
+Records adapter name, source reference, counts, and timestamps for local operational audit. It never stores credentials.
