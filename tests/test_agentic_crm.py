@@ -46,11 +46,27 @@ class AgenticCrmTests(unittest.TestCase):
         with sqlite3.connect(self.db) as conn:
             conn.executescript(migration)
             conn.execute("INSERT INTO schema_meta VALUES (1, 1, '2026-01-01T00:00:00Z')")
-            conn.execute("INSERT INTO contacts (email,email_normalized,source,created_at,updated_at) VALUES (?,?,?,?,?)",
-                         ("legacy@example.com", "legacy@example.com", "legacy", "now", "now"))
+            conn.executemany(
+                "INSERT INTO contacts (id,email,email_normalized,source,do_not_contact,created_at,updated_at) "
+                "VALUES (?,?,?,?,?,?,?)",
+                [(1, "legacy@example.com", "legacy@example.com", "legacy", 0, "created", "updated"),
+                 (2, "dnc@example.com", "dnc@example.com", "legacy", 1, "created", "updated")],
+            )
+            conn.execute("INSERT INTO email_suppressions VALUES (1,'dnc@example.com','unsubscribe','created')")
+            conn.execute("INSERT INTO email_events VALUES (1,1,'sent','{\"synthetic\":true}','occurred')")
         result = self.invoke("init_email_crm.py")
         self.assertEqual(result["schema_version"], 2)
-        self.assertEqual(self.scalar("SELECT email FROM contacts"), "legacy@example.com")
+        with sqlite3.connect(self.db) as conn:
+            self.assertEqual(
+                list(conn.execute("SELECT id,email,do_not_contact FROM contacts ORDER BY id")),
+                [(1, "legacy@example.com", 0), (2, "dnc@example.com", 1)],
+            )
+            self.assertEqual(list(conn.execute("SELECT email_normalized,reason FROM email_suppressions")),
+                             [("dnc@example.com", "unsubscribe")])
+            self.assertEqual(list(conn.execute("SELECT contact_id,event_type,metadata_json FROM email_events")),
+                             [(1, "sent", '{"synthetic":true}')])
+            self.assertEqual(conn.execute("PRAGMA foreign_key_check").fetchall(), [])
+            self.assertEqual(conn.execute("PRAGMA integrity_check").fetchone()[0], "ok")
 
     def test_ingestion_is_normalized_idempotent_and_classified(self):
         first = self.ingest()
@@ -60,8 +76,61 @@ class AgenticCrmTests(unittest.TestCase):
         self.assertEqual(self.scalar("SELECT COUNT(*) FROM messages"), 3)
         with sqlite3.connect(self.db) as conn:
             states = dict(conn.execute("SELECT subject_normalized, computed_state FROM conversations"))
+            source_ref = conn.execute("SELECT source_ref FROM ingestion_runs ORDER BY id LIMIT 1").fetchone()[0]
         self.assertEqual(states["project quote"], "awaiting_me")
         self.assertEqual(states["routing ambiguity"], "needs_review")
+        self.assertTrue(source_ref.startswith("content-sha256:"))
+        self.assertNotIn(str(FIXTURE), source_ref)
+
+    def test_adapter_boundary_rejects_conflicts_and_sensitive_metadata(self):
+        self.ingest()
+        original = json.loads(FIXTURE.read_text(encoding="utf-8"))
+
+        conflict_path = Path(self.temp.name) / "conflict.json"
+        conflict = {"messages": [dict(original["messages"][0], excerpt="changed duplicate content")]}
+        conflict_path.write_text(json.dumps(conflict), encoding="utf-8")
+        result = subprocess.run(
+            [sys.executable, str(SCRIPTS / "ingest_messages.py"), "--db", self.db,
+             "--adapter", "synthetic", "--input", str(conflict_path)],
+            capture_output=True, text=True,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("conflicting duplicate message identity", result.stderr)
+
+        sensitive_path = Path(self.temp.name) / "sensitive.json"
+        sensitive = {"messages": [dict(original["messages"][0], external_id="new-sensitive",
+                                         metadata={"nested": {"access-token": "do-not-store"}})]}
+        sensitive_path.write_text(json.dumps(sensitive), encoding="utf-8")
+        result = subprocess.run(
+            [sys.executable, str(SCRIPTS / "ingest_messages.py"), "--db", self.db,
+             "--adapter", "synthetic", "--input", str(sensitive_path)],
+            capture_output=True, text=True,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("metadata key is not allowed", result.stderr)
+        self.assertEqual(self.scalar("SELECT COUNT(*) FROM messages"), 3)
+        self.assertEqual(self.scalar("SELECT COUNT(*) FROM ingestion_runs"), 1)
+
+    def test_timestamps_are_canonical_and_retention_cutoff_fails_closed(self):
+        payload = {
+            "messages": [{
+                "external_id": "time-1", "conversation_external_id": "time-thread",
+                "occurred_at": "2026-01-05T01:00:00-08:00", "direction": "inbound",
+                "sender": "sender@example.com", "recipients": ["me@example.com"], "excerpt": "synthetic",
+            }]
+        }
+        fixture = Path(self.temp.name) / "timestamp.json"
+        fixture.write_text(json.dumps(payload), encoding="utf-8")
+        self.invoke("ingest_messages.py", "--adapter", "synthetic", "--input", str(fixture))
+        self.assertEqual(self.scalar("SELECT occurred_at FROM messages"), "2026-01-05T09:00:00.000000Z")
+        result = subprocess.run(
+            [sys.executable, str(SCRIPTS / "purge_message_excerpts.py"), "--db", self.db,
+             "--before", "not-a-timestamp", "--apply"],
+            capture_output=True, text=True,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("before must be an ISO-8601 timestamp with a timezone", result.stderr)
+        self.assertEqual(self.scalar("SELECT COUNT(*) FROM messages WHERE excerpt IS NOT NULL"), 1)
 
     def test_obligation_and_manual_override_take_precedence(self):
         self.ingest()

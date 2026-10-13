@@ -9,11 +9,13 @@
 
 ## Security boundary
 
-Database files and SQLite sidecars are owner-only (`0600`). The package has no network or transport dependency. A provider adapter is a separate trust boundary and must be read-only, retrieve credentials from an external secret store, and redact source references before logging.
+Database files and SQLite sidecars are owner-only (`0600`). The package has no network or transport dependency. A provider adapter is a separate, executable-code trust boundary: review it before installation, run it with least privilege and read-only provider scopes, retrieve credentials from an external secret store, and redact source references before logging. The core revalidates normalized records, rejects common secret/body metadata keys, limits metadata to 16 KiB, and stores the bundled synthetic input only as a content hash. These checks are defense in depth; they cannot make malicious adapter code safe.
 
 ## Retention
 
-This candidate does not auto-delete records because retention policy is operator- and jurisdiction-specific. Before production use, define retention periods for excerpts, message metadata, audit records, and backups. `purge_message_excerpts.py --before TIMESTAMP` reports eligible excerpts without changing data; add `--apply` after review to null those excerpts while retaining hashes and source IDs. Broader deletion should use a reviewed, referentially safe maintenance process tested against a backup.
+The default is no automatic deletion. This avoids silently destroying records under an invented universal policy, but it also means data is retained indefinitely until the operator configures and runs maintenance; that default is not a production retention policy. Before production use, define documented periods for excerpts, message metadata, proposal payloads, audit records, and backups, plus a review cadence and legal-hold process.
+
+`purge_message_excerpts.py --before TIMESTAMP` reports eligible excerpts without changing data; add `--apply` only after reviewing the count. The cutoff must be a timezone-aware ISO-8601 timestamp and is normalized to UTC. The tool nulls excerpts while retaining hashes and source IDs. It does not delete message metadata, action payloads, audit records, or backups. Broader deletion should use a reviewed, referentially safe maintenance process tested against a backup.
 
 ## Operational controls
 

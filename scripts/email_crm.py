@@ -26,6 +26,20 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
+def normalize_utc_timestamp(value: str, field_name: str = "timestamp") -> str:
+    if not isinstance(value, str) or "T" not in value:
+        raise ValueError(f"{field_name} must be an ISO-8601 timestamp with a timezone")
+    candidate = value.strip()
+    try:
+        parsed = datetime.fromisoformat(candidate[:-1] + "+00:00" if candidate.endswith("Z") else candidate)
+    except ValueError as exc:
+        raise ValueError(f"{field_name} must be an ISO-8601 timestamp with a timezone") from exc
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise ValueError(f"{field_name} must be an ISO-8601 timestamp with a timezone")
+    normalized = parsed.astimezone(timezone.utc)
+    return normalized.isoformat(timespec="microseconds").replace("+00:00", "Z")
+
+
 def normalize_email(value: str) -> str:
     normalized = value.strip().lower()
     if not EMAIL_RE.fullmatch(normalized):

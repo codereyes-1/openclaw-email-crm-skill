@@ -81,6 +81,8 @@ python3 "{baseDir}/scripts/ingest_messages.py" --db /absolute/private/path/email
 
 Confirm `imported`, `duplicates`, and each deterministic state result. Repeating the same input must increase `duplicates`, not message count. Add provider adapters outside the core and keep fetch credentials out of this repository and database.
 
+Treat adapters as untrusted executable integrations. Review their code, grant read-only provider scopes, and run them with least privilege. The core rejects conflicting duplicate identities, non-aware timestamps, oversized metadata, and common secret/body metadata keys, but cannot sandbox malicious adapter code.
+
 ## 8. Record obligations and corrections
 
 ```bash
@@ -105,5 +107,7 @@ Create with `propose_action.py`, approve or reject with `review_action.py`, and 
 ## Verification
 
 Run `cd "{baseDir}" && python3 -m unittest discover -s tests -v`. The tests use only temporary databases and `example.com` addresses.
+
+No automatic retention period is enabled. Before production use, define operator- and jurisdiction-appropriate periods, then use `purge_message_excerpts.py --before TIMESTAMP` as a dry run and add `--apply` only after review. This helper affects excerpts only.
 
 See [the schema reference](references/schema.md), [adapter contract](references/adapter-contract.md), [state and action rules](references/state-and-actions.md), and [privacy/security/retention guide](references/privacy-security-retention.md) for the integration contract.

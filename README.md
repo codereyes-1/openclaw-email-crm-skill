@@ -64,6 +64,8 @@ Before using an external email sender, configure and satisfy the legal, consent,
 
 The core stores message excerpts only when an adapter supplies them, capped at 500 characters. Prefer hashes and provider references over content. See [privacy, security, and retention](references/privacy-security-retention.md) before connecting any private data source.
 
+There is intentionally no automatic retention period: absent operator maintenance, records are retained indefinitely. Set a policy before production use. The excerpt purge helper is dry-run by default and requires a timezone-aware cutoff; it does not purge metadata, proposal payloads, audit records, or backups.
+
 ## License
 
 MIT. See [LICENSE](LICENSE).

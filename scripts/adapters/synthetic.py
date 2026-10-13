@@ -25,18 +25,24 @@ class SyntheticJsonAdapter:
             missing = [key for key in required if not item.get(key)]
             if missing:
                 raise ValueError(f"message {index} missing required fields: {', '.join(missing)}")
+            recipients = item.get("recipients", [])
+            metadata = item.get("metadata", {})
+            if not isinstance(recipients, list) or not all(isinstance(value, str) for value in recipients):
+                raise ValueError(f"message {index} recipients must be a list of strings")
+            if not isinstance(metadata, dict):
+                raise ValueError(f"message {index} metadata must be an object")
             yield NormalizedMessageRecord(
-                provider=str(item.get("provider", "synthetic")),
-                account_ref=str(item.get("account_ref", "demo")),
-                external_id=str(item["external_id"]),
-                conversation_external_id=str(item["conversation_external_id"]),
-                occurred_at=str(item["occurred_at"]),
-                direction=str(item["direction"]),
+                provider=item.get("provider", "synthetic"),
+                account_ref=item.get("account_ref", "demo"),
+                external_id=item["external_id"],
+                conversation_external_id=item["conversation_external_id"],
+                occurred_at=item["occurred_at"],
+                direction=item["direction"],
                 sender=item.get("sender"),
-                recipients=tuple(item.get("recipients", [])),
+                recipients=tuple(recipients),
                 subject=item.get("subject"),
                 rfc_message_id=item.get("rfc_message_id"),
                 excerpt=item.get("excerpt"),
                 content_hash=item.get("content_hash"),
-                metadata=dict(item.get("metadata", {})),
+                metadata=metadata,
             )
