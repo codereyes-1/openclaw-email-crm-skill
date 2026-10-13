@@ -1,6 +1,6 @@
 # OpenClaw Email CRM Skill
 
-A small, local SQLite CRM core for email workflows. It records sourced contacts, email lifecycle events, and email suppressions without binding to a sender, lead provider, or enrichment service.
+A local, provider-neutral SQLite CRM core for agentic email workflows. Version 2 adds normalized conversations/messages, deterministic attention state, obligations, briefings, and inert reviewed action proposals while retaining the version 1 contact/readiness CLI.
 
 ## Requirements
 
@@ -13,11 +13,15 @@ A small, local SQLite CRM core for email workflows. It records sourced contacts,
 - Records neutral email lifecycle events.
 - Provides a deterministic readiness check before an external sender queues or sends mail.
 - Makes unsubscribe and manual do-not-contact requests idempotent.
+- Ingests normalized records through a reusable read-only adapter contract.
+- Classifies conversation attention state with evidence, confidence, and manual overrides.
+- Tracks idempotent obligations and generates JSON or human briefings.
+- Audits proposal/approval/reconciliation without performing transport.
 
 ## What it does not do
 
 - Discover, enrich, scrape, or import leads.
-- Send email or provide legal advice.
+- Send email, execute provider actions, or provide legal advice.
 - Store phone, address, call, website, recording, or transcript data.
 
 ## Quick start
@@ -26,9 +30,23 @@ A small, local SQLite CRM core for email workflows. It records sourced contacts,
 python3 scripts/init_email_crm.py --db /absolute/private/path/email_crm.sqlite
 printf '%s\n' 'alice@example.com' | python3 scripts/upsert_contact.py --db /absolute/private/path/email_crm.sqlite --email-stdin --source manual-review
 printf '%s\n' 'alice@example.com' | python3 scripts/check_email_readiness.py --db /absolute/private/path/email_crm.sqlite --email-stdin
+python3 scripts/ingest_messages.py --db /absolute/private/path/email_crm.sqlite --adapter synthetic --input fixtures/synthetic_messages.json
+python3 scripts/brief_email_crm.py --db /absolute/private/path/email_crm.sqlite --json
 ```
 
 The CLI also accepts `--email` for attended use. Agent automation should pass addresses through stdin with `--email-stdin` so they do not appear in process arguments. Upserts store the trimmed, lowercased address in both email columns and return JSON with `ok` and `contact_id`.
+
+Run the fully synthetic no-transport demo with `python3 scripts/demo_v2.py`. Add `--db /path/to/demo.sqlite` to keep its database.
+
+## Compatibility
+
+| Surface | v2 behavior |
+| --- | --- |
+| Existing schema v1 DB | Migrated in place to v2; existing tables and rows retained. |
+| `init_email_crm.py` | Same arguments/output shape; `schema_version` is now `2`. |
+| Contact/readiness/event/suppression CLIs | Arguments and JSON fields preserved. |
+| New ingestion | Provider-neutral contract; bundled adapter accepts synthetic JSON only. |
+| Outbound actions | Proposal, approval, and audit only; transport is never performed. |
 
 Run the test suite with:
 
@@ -43,6 +61,10 @@ This package deliberately ships with no database, exports, logs, or real contact
 Use `--db` or `EMAIL_CRM_DB` to select an explicit location. Otherwise the CLI uses `$XDG_DATA_HOME/openclaw-email-crm/email_crm.sqlite`, falling back to `~/.local/share/openclaw-email-crm/email_crm.sqlite`; it never writes relative to an arbitrary current working directory. The database and its SQLite sidecars are kept owner-only (`0600`).
 
 Before using an external email sender, configure and satisfy the legal, consent, and policy requirements that apply to your jurisdiction and provider. The readiness result is a technical gate, not a compliance certification.
+
+The core stores message excerpts only when an adapter supplies them, capped at 500 characters. Prefer hashes and provider references over content. See [privacy, security, and retention](references/privacy-security-retention.md) before connecting any private data source.
+
+There is intentionally no automatic retention period: absent operator maintenance, records are retained indefinitely. Set a policy before production use. The excerpt purge helper is dry-run by default and requires a timezone-aware cutoff; it does not purge metadata, proposal payloads, audit records, or backups.
 
 ## License
 

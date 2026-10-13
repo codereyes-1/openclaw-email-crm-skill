@@ -39,7 +39,7 @@ class EmailCrmCliTests(unittest.TestCase):
             return conn.execute(query, params).fetchone()
 
     def test_readiness_and_suppression_are_normalized_and_idempotent(self):
-        self.assertEqual(self.invoke("init_email_crm.py")["schema_version"], 1)
+        self.assertEqual(self.invoke("init_email_crm.py")["schema_version"], 2)
         contact = self.invoke(
             "upsert_contact.py", "--email-stdin", "--source", "manual-review", stdin=" Alice@Example.COM \n"
         )
